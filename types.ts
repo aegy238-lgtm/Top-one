@@ -47,6 +47,7 @@ export interface Order {
   userId: string;
   appName: string;
   amount: number;
+  coinAmount?: number; // New: Persisted calculated coins
   currency: Currency;
   status: OrderStatus;
   paymentMethod?: PaymentMethod;
@@ -54,6 +55,16 @@ export interface Order {
   timestamp: number;
   adminMessage?: string; // New: Message from admin to user
   isRead?: boolean; // New: If user read the notification
+}
+
+export interface SystemNotification {
+    id: string;
+    userId: string; // Target user serial ID
+    title: string;
+    message: string;
+    timestamp: number;
+    isRead: boolean;
+    type: 'system';
 }
 
 export interface DashboardStats {
@@ -69,6 +80,13 @@ export interface AgencyConfig {
   lastSync: number | null;
 }
 
+export interface AdminPermissions {
+    canManageOrders: boolean;
+    canManageWallet: boolean;
+    canManageSettings: boolean; // Covers Banner, Apps, Contact, General, Agency
+    canManageTeam: boolean; // Only Super Admin usually
+}
+
 export interface User {
   id: string; // UUID
   serialId: string; // The sequential ID (e.g., 10001)
@@ -78,17 +96,24 @@ export interface User {
   balanceUSD: number;
   balanceCoins: number;
   createdAt: number;
-  isBanned?: boolean; // New: Ban status
+  isBanned?: boolean; // Permanent Ban status
+  banExpiresAt?: number; // New: Timestamp for temporary freeze expiration
   isAdmin?: boolean; // New: Super Admin Flag
+  permissions?: AdminPermissions; // New: Granular permissions for sub-admins
+  mustChangePassword?: boolean; // New: Security flag to force password change on next login
+  isDeactivated?: boolean; // New: Soft delete / Hide profile
 }
 
 export type BannerStyle = 'promo' | 'info' | 'warning' | 'alert';
 
 export interface BannerConfig {
   isVisible: boolean;
+  showText: boolean; // New: Toggle text visibility
   title: string;
   message: string;
   style: BannerStyle;
+  iconUrl?: string; // Optional custom icon URL (small icon)
+  backgroundUrl?: string; // New: Full background image URL
 }
 
 export interface SiteConfig {
