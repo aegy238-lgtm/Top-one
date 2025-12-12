@@ -15,7 +15,7 @@ import HeroBanner from './components/HeroBanner';
 import AdminBannerSettings from './components/AdminBannerSettings';
 import AdminAppsSettings from './components/AdminAppsSettings';
 import AdminContactSettings from './components/AdminContactSettings';
-import { getOrders, getStats, initializeData, getCurrentUser, updateOrder } from './services/storageService';
+import { getOrders, getStats, initializeData, getCurrentUser, updateOrder, startRealtimeSync } from './services/storageService';
 import { Order, DashboardStats } from './types';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
@@ -43,6 +43,7 @@ const App: React.FC = () => {
   };
 
   useEffect(() => {
+    startRealtimeSync(); // Initialize Firestore Listeners
     refreshData();
     const interval = setInterval(refreshData, 5000);
     return () => clearInterval(interval);

@@ -2,7 +2,7 @@ import { Order, OrderStatus, DashboardStats, AgencyConfig, User, PaymentMethod, 
 import { GLOBAL_APPS_CONFIG, GLOBAL_BANNER_CONFIG, GLOBAL_CONTACT_CONFIG } from '../config';
 import { firebaseConfig, ENABLE_CLOUD_DB } from '../firebaseConfig';
 import { initializeApp } from 'firebase/app';
-import { getFirestore, collection, addDoc, getDocs, getDoc, doc, updateDoc, setDoc, query, orderBy, limit } from 'firebase/firestore';
+import { getFirestore, collection, addDoc, getDocs, getDoc, doc, updateDoc, setDoc, query, orderBy, limit, onSnapshot } from 'firebase/firestore';
 
 // --- Local Storage Keys ---
 const ORDERS_KEY = 'haneen_orders';
@@ -41,91 +41,67 @@ const handleCloudError = (e: any, context: string) => {
     }
 };
 
-// Helper: Sync functions (Run in background)
-const syncOrdersFromCloud = async () => {
-    if (!db || !isCloudHealthy) return;
+// --- Realtime Sync Logic ---
+let realtimeStarted = false;
+
+export const startRealtimeSync = () => {
+    if (!ENABLE_CLOUD_DB || !db || !isCloudHealthy || realtimeStarted) return;
+    realtimeStarted = true;
+    console.log("🚀 Starting Realtime Sync with Firestore...");
+
+    // 1. Orders Listener
     try {
         const q = query(collection(db, "orders"), orderBy("timestamp", "desc"), limit(100));
-        const querySnapshot = await getDocs(q);
-        const cloudOrders: Order[] = [];
-        querySnapshot.forEach((doc) => {
-            cloudOrders.push(doc.data() as Order);
-        });
-        
-        if (cloudOrders.length > 0) {
-            localStorage.setItem(ORDERS_KEY, JSON.stringify(cloudOrders));
-        }
-    } catch (e) {
-        handleCloudError(e, "Orders Sync");
-    }
+        onSnapshot(q, (snapshot) => {
+            const cloudOrders: Order[] = [];
+            snapshot.forEach((doc) => {
+                cloudOrders.push(doc.data() as Order);
+            });
+            if (cloudOrders.length > 0) {
+                localStorage.setItem(ORDERS_KEY, JSON.stringify(cloudOrders));
+            }
+        }, (error) => handleCloudError(error, "Realtime Orders"));
+    } catch (e) { console.error("Setup Orders Listener Failed:", e); }
+
+    // 2. Users Listener
+    try {
+         onSnapshot(collection(db, "users"), (snapshot) => {
+            const users: User[] = [];
+            snapshot.forEach(doc => users.push(doc.data() as User));
+            if(users.length > 0) localStorage.setItem(USERS_KEY, JSON.stringify(users));
+         }, (error) => handleCloudError(error, "Realtime Users"));
+    } catch (e) { console.error("Setup Users Listener Failed:", e); }
+
+    // 3. Settings Listeners
+    const settingsMap = [
+        { key: BANNER_CONFIG_KEY, doc: "banner", isList: false },
+        { key: APPS_CONFIG_KEY, doc: "apps", isList: true },
+        { key: CONTACT_CONFIG_KEY, doc: "contact", isList: false },
+        { key: AGENCY_CONFIG_KEY, doc: "agency", isList: false }
+    ];
+
+    settingsMap.forEach(setting => {
+        try {
+            onSnapshot(doc(db, "settings", setting.doc), (docSnap) => {
+                if (docSnap.exists()) {
+                    const data = docSnap.data();
+                    const val = setting.isList ? data.list : data;
+                    localStorage.setItem(setting.key, JSON.stringify(val));
+                }
+            }, (error) => handleCloudError(error, `Realtime ${setting.doc}`));
+        } catch (e) { console.error(`Setup ${setting.doc} Listener Failed:`, e); }
+    });
 };
 
-const syncUsersFromCloud = async () => {
-    if (!db || !isCloudHealthy) return;
-    try {
-        const querySnapshot = await getDocs(collection(db, "users"));
-        const cloudUsers: User[] = [];
-        querySnapshot.forEach((doc) => {
-            cloudUsers.push(doc.data() as User);
-        });
-        if (cloudUsers.length > 0) {
-            localStorage.setItem(USERS_KEY, JSON.stringify(cloudUsers));
-        }
-    } catch (e) {
-        handleCloudError(e, "Users Sync");
-    }
-}
-
-// NEW: Sync Settings (Banner, Apps, Contact) from Cloud
-const syncSettingsFromCloud = async () => {
-    if (!db || !isCloudHealthy) return;
-    try {
-        // 1. Sync Banner
-        const bannerSnap = await getDoc(doc(db, "settings", "banner"));
-        if (bannerSnap.exists()) {
-            localStorage.setItem(BANNER_CONFIG_KEY, JSON.stringify(bannerSnap.data()));
-        }
-
-        // 2. Sync Apps
-        const appsSnap = await getDoc(doc(db, "settings", "apps"));
-        if (appsSnap.exists()) {
-            localStorage.setItem(APPS_CONFIG_KEY, JSON.stringify(appsSnap.data().list));
-        }
-
-        // 3. Sync Contact
-        const contactSnap = await getDoc(doc(db, "settings", "contact"));
-        if (contactSnap.exists()) {
-            localStorage.setItem(CONTACT_CONFIG_KEY, JSON.stringify(contactSnap.data()));
-        }
-        
-    } catch (e) {
-        handleCloudError(e, "Settings Sync");
-    }
-}
-
 // --- Orders Logic ---
-let lastSyncTime = 0;
 
 export const getOrders = (): Order[] => {
-  // 1. Return Local Data Immediately (Fast)
-  let localOrders: Order[] = [];
   try {
     const data = localStorage.getItem(ORDERS_KEY);
-    localOrders = data ? JSON.parse(data) : [];
+    return data ? JSON.parse(data) : [];
   } catch (e) {
-    localOrders = [];
+    return [];
   }
-
-  // 2. Background Sync (Every 5 seconds max)
-  const now = Date.now();
-  if (ENABLE_CLOUD_DB && db && isCloudHealthy && (now - lastSyncTime > 5000)) {
-      lastSyncTime = now;
-      syncOrdersFromCloud(); 
-      syncUsersFromCloud();
-      syncSettingsFromCloud(); // Sync settings as well
-  }
-
-  return localOrders;
 };
 
 export const saveOrder = async (order: Order): Promise<void> => {
@@ -293,7 +269,7 @@ export const saveUsers = async (users: User[]) => {
     // Local
     localStorage.setItem(USERS_KEY, JSON.stringify(users));
     
-    // Cloud (Sync all - simplified for this use case, ideally only changed user)
+    // Cloud (Sync all)
     if (ENABLE_CLOUD_DB && db && isCloudHealthy) {
         users.forEach(async (u) => {
             try {
