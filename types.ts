@@ -1,3 +1,4 @@
+
 export enum Currency {
   // Global
   USD = 'USD',
@@ -78,6 +79,7 @@ export interface User {
   balanceCoins: number;
   createdAt: number;
   isBanned?: boolean; // New: Ban status
+  isAdmin?: boolean; // New: Super Admin Flag
 }
 
 export type BannerStyle = 'promo' | 'info' | 'warning' | 'alert';
@@ -87,6 +89,11 @@ export interface BannerConfig {
   title: string;
   message: string;
   style: BannerStyle;
+}
+
+export interface SiteConfig {
+  name: string;
+  slogan?: string;
 }
 
 export interface AppConfig {
